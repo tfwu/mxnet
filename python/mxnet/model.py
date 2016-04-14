@@ -155,7 +155,7 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
     eval_data : DataIter
         Validation data iterator.
     eval_metric : EvalMetric
-        A evaluation function.
+        An evaluation function or a list of evaluation functions.
     epoch_end_callback : callable(epoch, symbol, arg_params, aux_states)
         A callback that is invoked at end of each epoch.
         This can be used to checkpoint model each epoch.
@@ -269,8 +269,10 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
             if epoch_size is None or nbatch >= epoch_size:
                 break
 
-        name, value = eval_metric.get()
-        logger.info('Epoch[%d] Train-%s=%f', epoch, name, value)
+        name_value = eval_metric.get_name_value()
+        for name, value in name_value:
+            logger.info('Epoch[%d] Train-%s=%f', epoch, name, value)
+
         toc = time.time()
         logger.info('Epoch[%d] Time cost=%.3f', epoch, (toc - tic))
 
@@ -302,8 +304,9 @@ def _train_multi_device(symbol, ctx, arg_names, param_names, aux_names,
                             call(batch_end_params)
                     else:
                         eval_batch_end_callback(batch_end_params)
-            name, value = eval_metric.get()
-            logger.info('Epoch[%d] Validation-%s=%f', epoch, name, value)
+            name_value = eval_metric.get_name_value()
+            for name, value in name_value:
+                logger.info('Epoch[%d] Validation-%s=%f', epoch, name, value)
     # end of all epochs
     return
 
@@ -516,7 +519,11 @@ class FeedForward(BASE_ESTIMATOR):
     def _init_predictor(self, input_shapes):
         """Initialize the predictor module for running prediction."""
         if self._pred_exec is not None:
-            return
+            arg_shapes, _, _ = self.symbol.infer_shape(**dict(input_shapes))
+            assert arg_shapes is not None, "Incomplete input shapes"
+            pred_shapes = [x.shape for x in self._pred_exec.arg_arrays]
+            if arg_shapes == pred_shapes:
+                return
         # for now only use the first device
         pred_exec = self.symbol.simple_bind(
             self.ctx[0], grad_req='null', **dict(input_shapes))
@@ -542,10 +549,10 @@ class FeedForward(BASE_ESTIMATOR):
             if y.ndim != 1:
                 raise ValueError("Label must be 1D or 2D (with 2nd dimension being 1)")
             if is_train:
-                return io.NDArrayIter(X, y, self.numpy_batch_size,
+                return io.NDArrayIter(X, y, min(X.shape[0], self.numpy_batch_size),
                                       shuffle=is_train, last_batch_handle='roll_over')
             else:
-                return io.NDArrayIter(X, y, self.numpy_batch_size, shuffle=False)
+                return io.NDArrayIter(X, y, min(X.shape[0], self.numpy_batch_size), shuffle=False)
         if not isinstance(X, io.DataIter):
             raise TypeError('X must be DataIter, NDArray or numpy.ndarray')
         return X

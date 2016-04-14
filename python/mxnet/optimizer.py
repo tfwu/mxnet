@@ -87,7 +87,7 @@ class Optimizer(object):
             ctypes.byref(handle)))
         return handle
 
-    def __init__(self, rescale_grad=1, arg_names=None, wd=0.):
+    def __init__(self, rescale_grad=1., arg_names=None, wd=0., clip_gradient=None):
         self.rescale_grad = rescale_grad
         self.lr_scale = {}
         self.num_update = 0
@@ -95,6 +95,7 @@ class Optimizer(object):
         self.wd = wd
         self.specialized = False
         self.weight_set = set([])
+        self.clip_gradient = clip_gradient
         if arg_names is not None:
             self.specialized = True
             index = 0
@@ -187,10 +188,10 @@ class SGD(Optimizer):
     def __init__(self, learning_rate=0.01, momentum=0.0,
                  wd=0.0001, rescale_grad=1, clip_gradient=None,
                  lr_scheduler=None, arg_names=None):
-        super(SGD, self).__init__(rescale_grad, arg_names, wd)
+        super(SGD, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                  clip_gradient=clip_gradient)
         self.lr = learning_rate
         self.momentum = momentum
-        self.clip_gradient = clip_gradient
         self.lr_scheduler = lr_scheduler
         if lr_scheduler is not None:
             self.lr_scheduler.base_lr = learning_rate
@@ -207,7 +208,7 @@ class SGD(Optimizer):
         if self.momentum == 0.0:
             return None
         else:
-            return zeros(weight.shape, weight.context)
+            return zeros(weight.shape, weight.context, dtype=weight.dtype)
 
     def update(self, index, weight, grad, state):
         """Update the parameters.
@@ -274,10 +275,9 @@ class SGLD(Optimizer):
     def __init__(self, learning_rate=0.01,
                  wd=0.0001, rescale_grad=1, clip_gradient=None,
                  lr_scheduler=None, arg_names=None):
-        super(SGLD, self).__init__(rescale_grad, arg_names)
+        super(SGLD, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                   clip_gradient=clip_gradient)
         self.lr = learning_rate
-        self.wd = wd
-        self.clip_gradient = clip_gradient
         self.lr_scheduler = lr_scheduler
         if lr_scheduler is not None:
             self.lr_scheduler.base_lr = learning_rate
@@ -357,10 +357,10 @@ class ccSGD(Optimizer):
     def __init__(self, learning_rate=0.01, momentum=0.0,
                  wd=0.0001, rescale_grad=1, clip_gradient=-1,
                  lr_scheduler=None, arg_names=None):
-        super(ccSGD, self).__init__(rescale_grad, arg_names, wd)
+        super(ccSGD, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                    clip_gradient=clip_gradient)
         self.lr = learning_rate
         self.momentum = momentum
-        self.clip_gradient = clip_gradient
         self.lr_scheduler = lr_scheduler
         if lr_scheduler is not None:
             self.lr_scheduler.base_lr = learning_rate
@@ -462,13 +462,13 @@ class Adam(Optimizer):
                  wd=0.,
                  rescale_grad=1, clip_gradient=None,
                  lr_scheduler=None, arg_names=None):
-        super(Adam, self).__init__(rescale_grad, arg_names, wd)
+        super(Adam, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                   clip_gradient=clip_gradient)
         self.lr = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
         self.decay_factor = decay_factor
-        self.clip_gradient = clip_gradient
         self.lr_scheduler = lr_scheduler
         if lr_scheduler is not None:
             self.lr_scheduler.base_lr = learning_rate
@@ -485,8 +485,8 @@ class Adam(Optimizer):
 
         """
         self.time_first_index = None  # time is incremented only on the first index
-        return (zeros(weight.shape, weight.context),  # mean
-                zeros(weight.shape, weight.context))  # variance
+        return (zeros(weight.shape, weight.context, dtype=weight.dtype),  # mean
+                zeros(weight.shape, weight.context, dtype=weight.dtype))  # variance
 
     def update(self, index, weight, grad, state):
         """Update the parameters.
@@ -547,6 +547,63 @@ class Adam(Optimizer):
         variance[:] = variance_t
 
 @register
+class AdaGrad(Optimizer):
+    """AdaGrad optimizer of Duchi et al., 2011,
+
+    This code follows the version in http://arxiv.org/pdf/1212.5701v1.pdf  Eq(5)
+    by Matthew D. Zeiler, 2012. AdaGrad will help the network to converge faster
+    in some cases.
+
+    Parameters
+    ----------
+    learning_rate : float, optional
+        Step size.
+        Default value is set to 0.05.
+
+    wd : float, optional
+        L2 regularization coefficient add to all the weights
+
+    rescale_grad : float, optional
+        rescaling factor of gradient.
+
+    eps: float, optional
+        A small float number to make the updating processing stable
+        Default value is set to 1e-7.
+
+    clip_gradient : float, optional
+        clip gradient in range [-clip_gradient, clip_gradient]
+    """
+    def __init__(self, learning_rate=0.05, wd=0., rescale_grad=1, eps=1e-7, clip_gradient=None,
+                 lr_scheduler=None, arg_names=None):
+        super(AdaGrad, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                      clip_gradient=clip_gradient)
+        self.lr = learning_rate
+        self.float_stable_eps = eps
+        self.rescale_grad = rescale_grad
+        self.lr_scheduler = lr_scheduler
+        if lr_scheduler is not None:
+            self.lr_scheduler.base_lr = learning_rate
+
+    def create_state(self, index, weight):
+        return zeros(weight.shape, weight.context) # history
+
+    def update(self, index, weight, grad, state):
+        assert(isinstance(weight, NDArray))
+        assert(isinstance(grad, NDArray))
+        if self.lr_scheduler is not None:
+            lr = self.lr_scheduler(self.num_update)
+            self._update_count(index)
+        else:
+            lr = self.lr
+        lr *= self.lr_scale.get(index, 1.0)
+        grad = grad * self.rescale_grad
+        if self.clip_gradient is not None:
+            grad = clip(grad, -self.clip_gradient, self.clip_gradient)
+        history = state
+        history[:] += (grad * grad)
+        weight[:] += -lr * (grad / sqrt(history + self.float_stable_eps) + self.wd * weight)
+
+@register
 class RMSProp(Optimizer):
     """RMSProp optimizer of Tieleman & Hinton, 2012,
 
@@ -575,11 +632,15 @@ class RMSProp(Optimizer):
                  wd=0.,
                  rescale_grad=1, clip_gradient=None,
                  lr_scheduler=None, arg_names=None):
-        super(RMSProp, self).__init__(rescale_grad, arg_names, wd)
+        super(RMSProp, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                      clip_gradient=clip_gradient)
         self.lr = learning_rate
         self.gamma1 = gamma1
         self.gamma2 = gamma2
-        self.clip_gradient = clip_gradient
+        self.lr_scheduler = lr_scheduler
+        if lr_scheduler is not None:
+            self.lr_scheduler.base_lr = learning_rate
+
     def create_state(self, index, weight):
         """Create additional optimizer state: mean, variance
         Parameters
@@ -645,14 +706,11 @@ class AdaDelta(Optimizer):
         clip gradient in range [-clip_gradient, clip_gradient]
     """
     def __init__(self, rho=0.90, epsilon=1e-5,
-                 wd=0.000001, rescale_grad=1., clip_gradient=None,
-                 **kwargs):
-        super(AdaDelta, self).__init__(**kwargs)
+                 wd=0.000001, rescale_grad=1., clip_gradient=None, arg_names=None):
+        super(AdaDelta, self).__init__(rescale_grad=rescale_grad, arg_names=arg_names, wd=wd,
+                                       clip_gradient=clip_gradient)
         self.rho = rho
         self.epsilon = epsilon
-        self.wd = wd
-        self.rescale_grad = rescale_grad
-        self.clip_gradient = clip_gradient
 
     def create_state(self, index, weight):
         return (zeros(weight.shape, weight.context), # accumulated g
