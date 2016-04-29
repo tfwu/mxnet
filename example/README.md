@@ -29,6 +29,7 @@ If you want to contribute to this list and the examples, please open a new pull 
 * [Neural Art](neural-style) -  Generate artistic style images.
 * [Kaggle 1st national data science bowl](https://github.com/dmlc/mxnet/tree/master/example/kaggle-ndsb1) - a MXnet example for Kaggle Nation Data Science Bowl 1
 * [Kaggle 2nd national data science bowl](https://github.com/dmlc/mxnet/tree/master/example/kaggle-ndsb2) - a tutorial for Kaggle Second Nation Data Science Bowl
+* [CNN for Text Classification](cnn_text_classification) - a MXnet example for text classification
 
 
 ###IPython Notebooks
@@ -62,3 +63,6 @@ If you want to contribute to this list and the examples, please open a new pull 
 ### Kaggle tutorials
 * [Kaggle 2nd Annual Data Science Bowl End-to-End Deep Learning Tutorial (Python)](https://www.kaggle.com/c/second-annual-data-science-bowl/forums/t/18079/end-to-end-deep-learning-tutorial-0-0392) - an end-to-end python tutorial for Kaggle heart disease diagnose competition (public leaderboard score 0.0392)
 * [Kaggle 2nd Annual Data Science Bowl End-to-End Deep Learning Tutorial (R)](https://www.kaggle.com/c/second-annual-data-science-bowl/forums/t/18122/deep-learning-model-in-r) - an end-to-end R tutorial for Kaggle heart disease diagnose competition
+
+###Learning Note
+* [Learning Note in Chinese](https://github.com/zhubuntu/MXNet-Learning-Note) - Mxnet learning note in chinese.
