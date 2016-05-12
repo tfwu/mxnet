@@ -116,7 +116,7 @@ class ConvolutionOp : public Operator {
                                     param_.dilate[1]);
       } else {
         temp_col = unpack_patch2col(pad(data.Slice(i, i + step),
-                                        param_.pad[0], param_.pad[1]),
+                                    param_.pad[0], param_.pad[1]),
                                     param_.kernel[0],
                                     param_.kernel[1],
                                     param_.stride[0],
@@ -124,6 +124,7 @@ class ConvolutionOp : public Operator {
                                     param_.dilate[0],
                                     param_.dilate[1]);
       }
+
       const index_t gstride = temp_col.size(0) / param_.num_group;
       for (uint32_t gid = 0; gid < param_.num_group; ++gid) {
         mshadow::Tensor<xpu, 2, DType> tmpc = temp_col.Slice(gstride * gid,
@@ -336,19 +337,19 @@ class ConvolutionProp : public OperatorProperty {
         << "input num_filter must divide group size";
     CHECK_EQ(param_.num_filter % param_.num_group, 0) \
         << "output num_filter must divide group size";
-    CHECK_GE(param_.kernel.Size(), 0) \
+    CHECK_GT(param_.kernel.Size(), 0) \
         << "incorrect kernel size: " << param_.kernel;
-    CHECK_GE(param_.stride.Size(), 0) \
+    CHECK_GT(param_.stride.Size(), 0) \
         << "incorrect stride size: " << param_.stride;
-    CHECK_GE(param_.dilate.Size(), 0) \
+    CHECK_GT(param_.dilate.Size(), 0) \
         << "incorrect dilate size: " << param_.dilate;
     CHECK(ksize_x <= dshape[3] && ksize_y <= dshape[2])
         << "kernel size exceed input";
     (*out_shape)[conv::kOut][1] = param_.num_filter;
     (*out_shape)[conv::kOut][2] = (dshape[2] + 2 * param_.pad[0] -
-        (param_.dilate[0] == 1 ? ksize_y : ksize_y * param_.dilate[0] - 1)) / param_.stride[0] + 1;
+        (param_.dilate[0] * (ksize_y - 1) + 1)) / param_.stride[0] + 1;
     (*out_shape)[conv::kOut][3] = (dshape[3] + 2 * param_.pad[1] -
-        (param_.dilate[1] == 1 ? ksize_x : ksize_x * param_.dilate[1] - 1)) / param_.stride[1] + 1;
+        (param_.dilate[1] * (ksize_x - 1) + 1)) / param_.stride[1] + 1;
     return true;
   }
 
